@@ -1,0 +1,249 @@
+---
+title: "DA_analysis"
+format: html
+editor: visual
+---
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(tidymodels)
+library(gt)
+```
+# Introduction {#sec-intro}
+
+Measles remains a significant public health concern, particularly among young children who have not yet developed immunity. This study examines measles susceptibility among pre-school children in Glasgow from 1998 to 2012, using data collected from 133 intermediate zones (IZs), each representing a small geographical unit of approximately 4,000 residents. The dataset includes the number of susceptible pre-school children and the total pre-school population for each IZ and year.
+
+A key focus of this analysis is to determine whether Glasgow experienced a change in measles susceptibility following the retraction of the Wakefield article, which falsely linked the MMR vaccine to autism. Specifically, this study investigates whether any observed changes occurred in 2004, the year of the article's retraction. @sec-EA consists of an exploratory analysis of the project data ... @sec-FA contains the results from ... Concluding remarks are given in @sec-Con
+
+# Exploratory Analysis {#sec-EA}
+```{r}
+data <- read.csv("C:\\Users\\ASUS\\Desktop\\DAProject15.csv")
+data <- na.omit(data[,c("Year","N","Y")])
+data <- data %>%
+  mutate(percentage_Y_total=Y/4000,percentage_N_total=N/4000,percentage_Y_N=Y/N)
+data <- data %>%
+  mutate(across(c(percentage_Y_total,percentage_N_total,percentage_Y_N),
+                ~(.-min(.))/(max(.)-min(.)), .names = "minmax_{.col}"))
+```
+The measles susceptibility data below for pre-school children in Glasgow from 1998 to 2012 shows an increasing trend from 1998(4.56) to 2008(7.50), coinciding with the decline in MMR vaccination rates following the Wakefield controversy. The highest susceptibility was recorded in 2008, after which there was a noticeable decline in 2010 (5.25) and 2012 (4.84), likely reflecting improved vaccination efforts after the study's retraction and discrediting. And we can also notice the same small trend between 2002~2004, when the article was partially retracted. However, these findings are still remain to be analyzed.
+```{r}
+#| echo: false
+#| label: tbl-summary
+#| tbl-cap: Summary of the data
+data %>%
+  group_by(Year) %>%
+  summarise(mean_Y=mean(Y),sd_Y=sd(Y),median_Y=median(Y),count=n()) |>
+  gt()
+```
+@fig-trend displays the precentage of the  number of pre-school children susceptible to measles over total number of pre-school children across different years. The trend appears to fluctuate, showing an increase from 1998 to 2008 (a slightly decrease in 2004), followed by a decline in 2010 and 2012.
+```{r}
+#| echo: false
+#| label: fig-trend
+#| fig-cap: Trend Analysis Over Time
+ggplot(data, aes(x=Year, y=percentage_Y_N))+
+  stat_summary(fun=mean,geom="line",color="blue",size=1)+
+  stat_summary(fun=mean,geom="point",color="red",size=2)+
+  labs(title = "Trend of Measles Susceptibility Over Time",
+       x="Year",
+       y="Mean Number of Susceptible Pre-school Children")+
+  theme_minimal()
+```
+@fig-cor illustrates the relationship between the total number of pre-school children in an area and the number susceptible to measles. A positive trend is visible, as indicated by the fitted red regression line, suggesting that susceptibility tends to increase as the total number of children rises. The calculated correlation coefficient is 0.39, indicating a moderate positive association between the two variables. However, noticeable variability exists, especially in areas with a higher number of children.
+```{r}
+#| echo: false
+#| label: fig-cor
+#| fig-cap: Correlation between total and susceptible pre-school children
+Cor <- cor(data$Y,data$N)
+print(Cor)
+ggplot(data,aes(x=N,y=Y))+
+  geom_point(alpha=0.5,color="blue")+
+  geom_smooth(method = "lm",color="red")+
+  labs(title = "Correlation Between Total and Susceptible Pre-school Children",
+       x="Total Pre-school Children",
+       y="Susceptible Children")+
+  theme_minimal()
+```
+@fig-box represents the distribution of the number of pre-school children susceptible to measles across different years. Each year is assigned a distinct color, with the median, interquartile range, and outliers clearly displayed. The variability in susceptibility appears to fluctuate across years, with some years exhibiting a wider spread of values.
+```{r}
+#| echo: false
+#| label: fig-box
+#| fig-cap: Boxplot of the pre-school children suscetible to measles by year
+ggplot(data = data, aes(x = as.factor(Year), y = percentage_Y_N, fill = as.factor(Year))) +
+  geom_boxplot() +
+  labs(x = "Year", y = "Number of pre-school children susceptible to measles",
+       fill = "Year") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+```
+
+# Formal Analysis {#sec-FA}
+
+##(a)
+```{r}
+data$Retraction <- ifelse(data$Year >= 2010, "post", "pre")
+data$Retraction10 <- data$Retraction
+data$Retraction04 <- ifelse(data$Year >= 2004,"post","pre")
+```
+@fig-model visualizes the proportion of pre-school children susceptible to measles in Glasgow from 1998 to 2012. Each black dot represents an individual observation, while the red LOESS (locally estimated scatterplot smoothing) curve shows the overall trend. The trend suggests a gradual increase in susceptibility until around 2008, followed by a slight decline afterward. The variability across years remains high, with some extreme values present in all periods. The downward trend after 2010 might indicate an improvement in vaccination rates following the full discrediting of the Wakefield article.
+
+```{r}
+#| echo: false
+#| label: fig-model
+#| fig-cap: Measles Susceptibility in Glasgow
+ggplot(data,aes(x=Year,y=percentage_Y_N))+
+  geom_point(alpha=0.5)+
+  geom_smooth(method = "loess",se=FALSE,color="red")+
+  theme_minimal()+
+  labs(title = "Measles Susceptibility in Glasgow",
+       x="Year",y="Proportion Susceptible")
+
+```
+We start by fitting a logistic regression model which use percentage of Y over N as response variable and Retraction10 and Year as explanatory variable:
+ 
+(1) Addictive model:
+$$
+\log(\frac{p}{1-p})=\beta_0+\beta_{retraction10}\cdot Retraction10+\beta_{year}\cdot Year
+$$
+where
+
+- $p$ represents the probability of a pre-school child being susceptible to measles
+
+- $\log(\frac{p}{1-p})$ is the log-odds of a child being susceptible
+
+- $\beta_0$ is the intercept which represents the baseline log-odds of measles susceptibility when all predictors are zero.
+
+- $\beta_{retraction10}$ is the coefficient for $Retraction10$, a binary indicator variables:
+ 
+ - $Retraction10$ = 0 for years before 2010.
+ 
+ - $Retraction10$ = 1 for years 2010 and beyond.
+ 
+ - the coefficient $\beta_{retraction10}$ measures the change in log-odds of susceptibility after the Wakefield article was fully discredited.
+ 
+- $\beta_{year}$ is the coeffcient for $Year$, capturing the effect of time on measles susceptibility.
+ 
+ - A positive $\beta_{year}$ means susceptibility increases over time.
+ 
+ - A negative $\beta_{year}$ means susceptibility decreases over time.
+
+(2) Multiplicative Model:
+$$
+\log(\frac{p}{1-p})=\beta_0+\beta_{retraction10}\cdot Retraction10+\beta_{year}\cdot Year+\beta_{retraction10,year}\cdot Retraction10\cdot Year
+$$
+where 
+
+- $\beta_{retraction10,year}$ is the coefficient for interaction term
+```{r}
+model_10 <- glm(percentage_Y_N~Retraction10 + Year, family = binomial, weights = N, data=data)
+model_10_inter <- glm(percentage_Y_N~Retraction04 * Year, family = binomial, weights = N,data=data)
+```
+
+The model without interaction term shows a better model fit according to the AIC
+```{r}
+AIC(model_10,model_10_inter)
+```
+@tbl-10-summary indicate a significant change in measles susceptibility over time. The Year coefficient (0.042, p < 0.001) suggests a steady increase in susceptibility, while the Retraction10pre coefficient (0.647, p < 0.001) indicates that susceptibility was significantly higher before 2010 compared to post-2010. The Intercept (-87.717, p < 0.001) represents the baseline log-odds when Year = 0, though it is not directly interpretable. These findings suggest a notable shift in susceptibility patterns following the 2010 discrediting of the Wakefield article.
+```{r}
+#| echo: false
+#| label: tbl-10-summary
+#| tbl-cap: Summary of Binomial Logistic Regression (Post-2010 Effect)
+summary_10 <- tidy(model_10)
+summary_10 %>%
+  gt() %>%
+  tab_header(
+    title = "Summary of Binomial Logistic Regression (Post-2010 Effect)"
+  ) %>%
+  fmt_number(
+    columns = c("estimate", "std.error", "statistic", "p.value"),
+    decimals = 3
+  ) %>%
+  cols_label(
+    term = "Variable",
+    estimate = "Estimate",
+    std.error = "Std. Error",
+    statistic = "Z-value",
+    p.value = "P-value"
+  )
+```
+```{r}
+
+```
+Then fitting a logistic regression model which use percentage of Y over N as response variable and Retraction04 and Year as explanatory variable:
+$$
+\log(\frac{p}{1-p})=\beta_0+\beta_{retraction04}\cdot Retraction04+\beta_2\cdot Year
+$$
+This model helps assess whether and how measles susceptibility changed after 2004.
+```{r}
+model_04 <- glm(percentage_Y_N~Retraction04 + Year, family = binomial, weights = N,data=data)
+model_04_inter <- glm(percentage_Y_N~Retraction04 * Year, family = binomial, weights = N,data=data)
+```
+
+The model without interaction term shows a better model fit according to the AIC
+```{r}
+AIC(model_04,model_04_inter)
+```
+```{r}
+summary(model_04)
+```
+@tbl-04-summary suggest a significant shift in measles susceptibility around 2004. The Year coefficient (-0.021, p < 0.001) indicates a decreasing trend in susceptibility over time, while the Retraction04pre coefficient (-0.188, p = 0.001) suggests that susceptibility was significantly lower before 2004 compared to post-2004. The Intercept (38.863, p = 0.001) represents the baseline log-odds when Year = 0, though it lacks direct interpretability. These results imply a potential change in susceptibility patterns following the 2004 partial retraction of the Wakefield article.
+```{r}
+#| echo: false
+#| label: tbl-04-summary
+#| tbl-cap: Summary of Binomial Logistic Regression (Post-2004 Effect)
+summary_04 <- tidy(model_04)
+summary_04 %>%
+  gt() %>%
+  tab_header(
+    title = "Summary of Binomial Logistic Regression (Post-2004 Effect)"
+  ) %>%
+  fmt_number(
+    columns = c("estimate", "std.error", "statistic", "p.value"),
+    decimals = 3
+  ) %>%
+  cols_label(
+    term = "Variable",
+    estimate = "Estimate",
+    std.error = "Std. Error",
+    statistic = "Z-value",
+    p.value = "P-value"
+  )
+```
+
+Now let's accessing how well the model fits the data.
+```{r}
+
+
+```
+```{r}
+ggplot(data,aes(x=Retraction10,y=percentage_Y_N,fill = Retraction10))+
+  geom_boxplot()+
+  theme_minimal()+
+  labs(title = "Measles Susceptibility Before and After 2010",
+       x = "Period", y = "Proportion Susceptible")  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Conclusion {#sec-Con}
